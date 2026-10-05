@@ -5,9 +5,13 @@ SOURCE_URL = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/pl
 CHANNELS_FILE = "channels.txt"
 OUTPUT_FILE = "custom_italy.m3u8"
 
-# 1. Carica i canali consentiti
+# 1. Carica i canali consentiti (in minuscolo e senza spazi ai bordi)
 with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
-    allowed_channels = [line.strip().lower() for line in f if line.strip() and not line.startswith("#")]
+    allowed_channels = {
+        line.strip().lower() 
+        for line in f 
+        if line.strip() and not line.startswith("#")
+    }
 
 # 2. Scarica la playlist sorgente
 req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "Mozilla/5.0"})
@@ -16,33 +20,41 @@ with urllib.request.urlopen(req) as response:
 
 lines = content.splitlines()
 
-# 3. Filtra le tracce
+# 3. Filtra le tracce con corrispondenza esatta (1:1)
 output_lines = ["#EXTM3U"]
 include_next_url = False
-current_extinf = ""
 
 for line in lines:
-    line = line.strip()
-    if not line:
+    line_clean = line.strip()
+    if not line_clean:
         continue
     
-    if line.startswith("#EXTINF"):
-        current_extinf = line
-        line_lower = line.lower()
-        # Verifica se uno dei nomi canale corrisponde a tvg-name o al titolo finale
-        if any(ch in line_lower for ch in allowed_channels):
+    if line_clean.startswith("#EXTINF"):
+        # Estrai il tvg-name se presente: tvg-name="Nome Canale"
+        tvg_match = re.search(r'tvg-name="([^"]+)"', line_clean, re.IGNORECASE)
+        tvg_name = tvg_match.group(1).strip().lower() if tvg_match else None
+        
+        # Estrai il titolo finale dopo l'ultima virgola
+        display_name = line_clean.split(",")[-1].strip().lower() if "," in line_clean else None
+        
+        # Controlla se tvg-name o display_name coincidono esattamente con una voce in channels.txt
+        matched = False
+        if tvg_name and tvg_name in allowed_channels:
+            matched = True
+        elif display_name and display_name in allowed_channels:
+            matched = True
+
+        if matched:
             include_next_url = True
-            output_lines.append(current_extinf)
+            output_lines.append(line_clean)
         else:
             include_next_url = False
             
-    elif line.startswith("#") and include_next_url:
-        # Mantiene eventuali tag intermedi (#EXTVLCOPT, ecc.)
-        output_lines.append(line)
+    elif line_clean.startswith("#") and include_next_url:
+        output_lines.append(line_clean)
         
-    elif not line.startswith("#") and include_next_url:
-        # Aggiunge l'URL dello stream
-        output_lines.append(line)
+    elif not line_clean.startswith("#") and include_next_url:
+        output_lines.append(line_clean)
         include_next_url = False
 
 # 4. Scrivi il nuovo file M3U8
