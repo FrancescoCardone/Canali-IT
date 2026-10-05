@@ -1,0 +1,32 @@
+name: Aggiorna Playlist Custom
+
+on:
+  schedule:
+    # Esegue lo script ogni giorno alle 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch: # Permette di avviarlo manualmente
+
+permissions:
+  contents: write
+
+jobs:
+  filter-playlist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Esegui script di filtraggio
+        run: python filter.py
+
+      - name: Commit e Push se ci sono modifiche
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_italy.m3u8
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto: aggiornamento canali M3U8" && git push)
