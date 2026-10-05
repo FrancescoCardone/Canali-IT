@@ -5,7 +5,7 @@ SOURCE_URL = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/pl
 CHANNELS_FILE = "channels.txt"
 OUTPUT_FILE = "custom_italy.m3u8"
 
-# 1. Carica i canali consentiti (in minuscolo e senza spazi ai bordi)
+# 1. Carica i canali consentiti (in minuscolo e puliti dagli spazi)
 with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
     allowed_channels = {
         line.strip().lower() 
@@ -20,7 +20,7 @@ with urllib.request.urlopen(req) as response:
 
 lines = content.splitlines()
 
-# 3. Filtra le tracce con corrispondenza esatta (1:1)
+# 3. Filtra le tracce
 output_lines = ["#EXTM3U"]
 include_next_url = False
 
@@ -30,18 +30,18 @@ for line in lines:
         continue
     
     if line_clean.startswith("#EXTINF"):
-        # Estrai il tvg-name se presente: tvg-name="Nome Canale"
+        # Estrai il nome visualizzato (tutto ciò che c'è dopo l'ultima virgola)
+        display_name = line_clean.split(",")[-1].strip().lower() if "," in line_clean else None
+        
+        # Estrai tvg-name come fallback
         tvg_match = re.search(r'tvg-name="([^"]+)"', line_clean, re.IGNORECASE)
         tvg_name = tvg_match.group(1).strip().lower() if tvg_match else None
         
-        # Estrai il titolo finale dopo l'ultima virgola
-        display_name = line_clean.split(",")[-1].strip().lower() if "," in line_clean else None
-        
-        # Controlla se tvg-name o display_name coincidono esattamente con una voce in channels.txt
+        # Match esatto: prima verifica il nome completo dopo la virgola, poi tvg-name
         matched = False
-        if tvg_name and tvg_name in allowed_channels:
+        if display_name and display_name in allowed_channels:
             matched = True
-        elif display_name and display_name in allowed_channels:
+        elif tvg_name and tvg_name in allowed_channels and (not display_name or display_name == tvg_name):
             matched = True
 
         if matched:
