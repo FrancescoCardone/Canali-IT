@@ -1,17 +1,21 @@
 import urllib.request
 import re
+import os
 
 SOURCE_URL = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_italy.m3u8"
 CHANNELS_FILE = "channels.txt"
 OUTPUT_FILE = "custom_italy.m3u8"
 
-# 1. Carica i canali consentiti (in minuscolo e puliti dagli spazi)
+# 1. Carica i canali richiesti preservando la grafia originale per i log
+requested_channels = []
 with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
-    allowed_channels = {
-        line.strip().lower() 
-        for line in f 
-        if line.strip() and not line.startswith("#")
-    }
+    for line in f:
+        clean = line.strip()
+        if clean and not clean.startswith("#"):
+            requested_channels.append(clean)
+
+# Mappa per il confronto normalizzato (chiave minuscola -> nome originale)
+allowed_map = {ch.lower(): ch for ch in requested_channels}
 
 # 2. Scarica la playlist sorgente
 req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "Mozilla/5.0"})
@@ -20,8 +24,9 @@ with urllib.request.urlopen(req) as response:
 
 lines = content.splitlines()
 
-# 3. Filtra le tracce
+# 3. Filtra le tracce e traccia i canali trovati
 output_lines = ["#EXTM3U"]
+matched_channels = set()
 include_next_url = False
 
 for line in lines:
@@ -30,21 +35,21 @@ for line in lines:
         continue
     
     if line_clean.startswith("#EXTINF"):
-        # Estrai il nome visualizzato (tutto ciò che c'è dopo l'ultima virgola)
+        # Estrai nome visualizzato dopo l'ultima virgola
         display_name = line_clean.split(",")[-1].strip().lower() if "," in line_clean else None
         
         # Estrai tvg-name come fallback
         tvg_match = re.search(r'tvg-name="([^"]+)"', line_clean, re.IGNORECASE)
         tvg_name = tvg_match.group(1).strip().lower() if tvg_match else None
         
-        # Match esatto: prima verifica il nome completo dopo la virgola, poi tvg-name
-        matched = False
-        if display_name and display_name in allowed_channels:
-            matched = True
-        elif tvg_name and tvg_name in allowed_channels and (not display_name or display_name == tvg_name):
-            matched = True
+        matched_key = None
+        if display_name and display_name in allowed_map:
+            matched_key = display_name
+        elif tvg_name and tvg_name in allowed_map and (not display_name or display_name == tvg_name):
+            matched_key = tvg_name
 
-        if matched:
+        if matched_key:
+            matched_channels.add(allowed_map[matched_key])
             include_next_url = True
             output_lines.append(line_clean)
         else:
@@ -61,4 +66,38 @@ for line in lines:
 with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
     f.write("\n".join(output_lines) + "\n")
 
-print(f"Playlist generata con successo: {len(output_lines)} righe scritte.")
+# 5. Calcola i canali mancanti
+missing_channels = [ch for ch in requested_channels if ch not in matched_channels]
+
+# Stampa nei log della console
+print("========================================")
+print(f"Canali richiesti: {len(requested_channels)}")
+print(f"Canali trovati:   {len(matched_channels)}")
+print(f"Canali mancanti:  {len(missing_channels)}")
+print("========================================")
+
+if missing_channels:
+    print("\n[ATTENZIONE] Canali non trovati nella sorgente:")
+    for ch in missing_channels:
+        print(f" - {ch}")
+        # Notifica visiva nell'interfaccia Actions
+        print(f"::warning::Canale non trovato nella sorgente IPTV: {ch}")
+else:
+    print("\nTutti i canali richiesti sono stati trovati con successo!")
+
+# 6. Scrivi il riepilogo nel GitHub Step Summary (se eseguito su Actions)
+summary_file = os.getenv("GITHUB_STEP_SUMMARY")
+if summary_file:
+    with open(summary_file, "a", encoding="utf-8") as sf:
+        sf.write("### 📺 Riepilogo Aggiornamento Playlist\n\n")
+        sf.write(f"- **Canali richiesti:** {len(requested_channels)}\n")
+        sf.write(f"- **Canali inseriti con successo:** {len(matched_channels)}\n")
+        sf.write(f"- **Canali non trovati:** {len(missing_channels)}\n\n")
+        
+        if missing_channels:
+            sf.write("#### ⚠️ Canali mancanti / non trovati:\n")
+            for ch in missing_channels:
+                sf.write(f"- `{ch}`\n")
+            sf.write("\n> *Suggerimento: controlla se il nome o simbolo è cambiato nella playlist sorgente.*\n")
+        else:
+            sf.write("✅ **Tutti i canali di `channels.txt` sono stati agganciati correttamente.**\n")
